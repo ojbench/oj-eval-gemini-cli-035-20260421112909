@@ -19,11 +19,11 @@ private:
     }
 
     char* get_ptr() {
-        return is_small() ? small_buffer : heap_ptr;
+        return _size <= 15 ? small_buffer : heap_ptr;
     }
 
     const char* get_ptr() const {
-        return is_small() ? small_buffer : heap_ptr;
+        return _size <= 15 ? small_buffer : heap_ptr;
     }
 
 public:
@@ -50,7 +50,7 @@ public:
     }
 
     MyString(const MyString& other) : _size(other._size), _capacity(other._capacity) {
-        if (is_small()) {
+        if (_size <= 15) {
             memcpy(small_buffer, other.small_buffer, _size + 1);
         } else {
             heap_ptr = new char[_capacity + 1];
@@ -59,7 +59,7 @@ public:
     }
 
     MyString(MyString&& other) noexcept : _size(other._size), _capacity(other._capacity) {
-        if (other.is_small()) {
+        if (other._size <= 15) {
             memcpy(small_buffer, other.small_buffer, _size + 1);
         } else {
             heap_ptr = other.heap_ptr;
@@ -71,12 +71,12 @@ public:
 
     MyString& operator=(MyString&& other) noexcept {
         if (this != &other) {
-            if (!is_small()) {
+            if (_size > 15) {
                 delete[] heap_ptr;
             }
             _size = other._size;
             _capacity = other._capacity;
-            if (other.is_small()) {
+            if (other._size <= 15) {
                 memcpy(small_buffer, other.small_buffer, _size + 1);
             } else {
                 heap_ptr = other.heap_ptr;
@@ -91,18 +91,18 @@ public:
     MyString& operator=(const MyString& other) {
         if (this != &other) {
             if (other._size <= 15) {
-                if (!is_small()) {
+                if (_size > 15) {
                     delete[] heap_ptr;
                 }
                 _size = other._size;
                 _capacity = 15;
                 memcpy(small_buffer, other.small_buffer, _size + 1);
             } else {
-                if (!is_small() && _capacity >= other._size) {
+                if (_size > 15 && _capacity >= other._size) {
                     _size = other._size;
                     memcpy(heap_ptr, other.heap_ptr, _size + 1);
                 } else {
-                    if (!is_small()) {
+                    if (_size > 15) {
                         delete[] heap_ptr;
                     }
                     _size = other._size;
@@ -116,7 +116,7 @@ public:
     }
 
     ~MyString() {
-        if (!is_small()) {
+        if (_size > 15) {
             delete[] heap_ptr;
         }
     }
@@ -130,48 +130,51 @@ public:
     }
 
     size_t capacity() const {
-        return _capacity;
+        return _size <= 15 ? 15 : _capacity;
     }
 
     void reserve(size_t new_capacity) {
         if (new_capacity <= _capacity) return;
-        
-        if (is_small()) {
-            if (new_capacity > 15) {
-                char* new_ptr = new char[new_capacity + 1];
-                memcpy(new_ptr, small_buffer, _size + 1);
-                heap_ptr = new_ptr;
-                _capacity = new_capacity;
-            }
-        } else {
+        if (_size > 15) {
             char* new_ptr = new char[new_capacity + 1];
             memcpy(new_ptr, heap_ptr, _size + 1);
             delete[] heap_ptr;
             heap_ptr = new_ptr;
-            _capacity = new_capacity;
         }
+        _capacity = new_capacity;
     }
 
     void resize(size_t new_size) {
-        if (new_size <= _size) {
-            _size = new_size;
-            get_ptr()[_size] = '\0';
-            if (new_size <= 15 && !is_small()) {
-                char* old_ptr = heap_ptr;
-                memcpy(small_buffer, old_ptr, new_size);
-                small_buffer[new_size] = '\0';
-                delete[] old_ptr;
-                _capacity = 15;
-            }
-        } else {
-            if (new_size > _capacity) {
-                reserve(std::max(new_size, _capacity * 2));
-            }
-            char* ptr = get_ptr();
-            memset(ptr + _size, '\0', new_size - _size);
-            _size = new_size;
-            ptr[_size] = '\0';
+        if (new_size > _capacity) {
+            reserve(std::max(new_size, _capacity * 2));
         }
+        
+        if (_size <= 15 && new_size > 15) {
+            char* new_ptr = new char[_capacity + 1];
+            memcpy(new_ptr, small_buffer, _size);
+            if (new_size > _size) {
+                memset(new_ptr + _size, '\0', new_size - _size);
+            }
+            new_ptr[new_size] = '\0';
+            heap_ptr = new_ptr;
+        } else if (_size > 15 && new_size <= 15) {
+            char* old_ptr = heap_ptr;
+            memcpy(small_buffer, old_ptr, new_size);
+            small_buffer[new_size] = '\0';
+            delete[] old_ptr;
+            _capacity = 15;
+        } else if (_size > 15) {
+            if (new_size > _size) {
+                memset(heap_ptr + _size, '\0', new_size - _size);
+            }
+            heap_ptr[new_size] = '\0';
+        } else {
+            if (new_size > _size) {
+                memset(small_buffer + _size, '\0', new_size - _size);
+            }
+            small_buffer[new_size] = '\0';
+        }
+        _size = new_size;
     }
 
     char& operator[](size_t index) {
@@ -193,11 +196,22 @@ public:
     void append(const char* str) {
         if (str == nullptr) return;
         size_t len = strlen(str);
-        if (_size + len > _capacity) {
-            reserve(std::max(_size + len, _capacity * 2));
+        size_t new_size = _size + len;
+        if (new_size > _capacity) {
+            reserve(std::max(new_size, _capacity * 2));
         }
-        memcpy(get_ptr() + _size, str, len + 1);
-        _size += len;
+        
+        if (_size <= 15 && new_size > 15) {
+            char* new_ptr = new char[_capacity + 1];
+            memcpy(new_ptr, small_buffer, _size);
+            memcpy(new_ptr + _size, str, len + 1);
+            heap_ptr = new_ptr;
+        } else if (_size > 15) {
+            memcpy(heap_ptr + _size, str, len + 1);
+        } else {
+            memcpy(small_buffer + _size, str, len + 1);
+        }
+        _size = new_size;
     }
 
     const char& at(size_t pos) const {
